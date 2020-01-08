@@ -1,0 +1,9 @@
+url:
+  u1: 'http://www.baidu.com'
+  u2: 'http://www.sina.com'
+
+api:
+  - id: 'station_name'
+    name: '车站'
+    url: '{u1}/otn/resources/js/framework/station_name.js'
+    get: 'station_version=1.9137'
