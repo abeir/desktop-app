@@ -1,21 +1,26 @@
 package net
 
 import (
+	"bufio"
 	"bytes"
 	"github.com/abeir/desktop-app/core"
 	"github.com/abeir/desktop-app/core/log"
-	"github.com/valyala/fasthttp"
 	"io"
+	"io/ioutil"
 	"mime/multipart"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
+// HttpMethod http请求类型，post、get等等
 type HttpMethod string
 
-func (h *HttpMethod) ToString() string{
-	return string(*h)
+func (h HttpMethod) ToString() string{
+	return string(h)
 }
 
 const (
@@ -30,10 +35,11 @@ const (
 	HttpTrace HttpMethod   = "TRACE"
 )
 
+// ContentType 请求头Content-Type的值
 type ContentType string
 
-func (c *ContentType) ToString() string{
-	return string(*c)
+func (c ContentType) ToString() string{
+	return string(c)
 }
 const (
 	FormUrlencoded ContentType = "application/x-www-form-urlencoded"
@@ -41,30 +47,41 @@ const (
 	Json ContentType           = "application/json"
 )
 
+var client *http.Client
 
 // NewHttpClient 创建HttpClient实例
 // HttpClient中的Set、Add方法支持链式调用方式，最后通过Reqeust方法发送请求
 // 默认情况下，会将Content-Type设置为application/x-www-form-urlencoded
 func NewHttpClient() *HttpClient{
-	client := fasthttp.Client{
-		//每个主机的最大连接数
-		MaxConnsPerHost: 50,
-		//空闲的连接关闭时间
-		MaxIdleConnDuration: 10 * time.Second,
-		//活动的连接关闭时间
-		MaxConnDuration: 60 * time.Second,
-		//幂等调用的最大尝试次数
-		MaxIdemponentCallAttempts: 3,
-		//响应数据的读取超时时间
-		ReadTimeout: 8 * time.Second,
-		//请求数据的写入超时时间
-		WriteTimeout: 8 * time.Second,
+	if client==nil {
+		var lock = sync.Mutex{}
+		lock.Lock()
+		defer lock.Unlock()
+		if client==nil {
+			var transport = &http.Transport{
+				Proxy: http.ProxyFromEnvironment,
+				DialContext: (&net.Dialer{
+					Timeout:   30 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+				ForceAttemptHTTP2:     true,
+				MaxIdleConns:          100,
+				IdleConnTimeout:       90 * time.Second,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+			}
+			client = &http.Client{
+				Transport:     transport,
+				Timeout:       time.Second * 15,
+			}
+		}
 	}
+
 	httpClient := &HttpClient{
-		client: &client,
+		client: client,
 		method: HttpGet,
-		req: fasthttp.AcquireRequest(),
-		respHeaders: make(map[string][]byte),
+		headers: make(map[string]string),
+		rspHeaders: make(map[string][]string),
 	}
 	httpClient.SetContentType(FormUrlencoded)
 	return httpClient
@@ -72,62 +89,77 @@ func NewHttpClient() *HttpClient{
 
 // HttpClient http客户端，不要手动构建该实例，应该调用NewHttpClient函数创建实例
 type HttpClient struct {
-	client *fasthttp.Client
+	client *http.Client
 	method HttpMethod
-	req *fasthttp.Request
-	respHeaders map[string][]byte
+	headers map[string]string
+	cookies []http.Cookie
+	body io.Reader
+	rspHeaders map[string][]string
 	err error
 }
 
 // AddHeader 添加请求头
 func (h *HttpClient) AddHeader(name, value string) *HttpClient{
-	header := h.req.Header
-	header.Add(name, value)
+	h.headers[name] = value
 	return h
 }
 
 // AddHeaders 批量添加请求头
 func (h *HttpClient) AddHeaders(headers map[string]string) *HttpClient{
-	header := h.req.Header
 	for k,v := range headers {
-		header.Add(k, v)
+		h.headers[k] = v
 	}
+	return h
+}
+
+func (h *HttpClient) AddCookie(cookie *http.Cookie) *HttpClient{
+	h.cookies = append(h.cookies, *cookie)
 	return h
 }
 
 // SetContentType 设置Content-Type
 func (h *HttpClient) SetContentType(contentType ContentType) *HttpClient{
-	h.req.Header.SetContentType(contentType.ToString())
+	h.headers["Content-Type"] = contentType.ToString()
 	return h
 }
 
 // SetUserAgent 设置User-Agent
 func (h *HttpClient) SetUserAgent(userAgent string) *HttpClient{
-	h.req.Header.SetUserAgent(userAgent)
+	h.headers["User-Agent"] = userAgent
 	return h
 }
 
 // SetMethod 设置请求方法，GET、POST、DELETE等
 func (h *HttpClient) SetMethod(method HttpMethod) *HttpClient{
 	h.method = method
-	h.req.Header.SetMethod(h.method.ToString())
 	return h
 }
 
 // SetBody 设置请求体内容
 func (h *HttpClient) SetBody(body []byte) *HttpClient{
-	h.req.SetBody(body)
+	h.body = bytes.NewBuffer(body)
 	return h
 }
 
-func (h *HttpClient) SetBodyStream(bodyStream io.Reader) *HttpClient{
-	h.req.SetBodyStream(bodyStream, -1)
+// SetBodyStream 设置请求体内容
+func (h *HttpClient) SetBodyStream(body io.Reader) *HttpClient{
+	h.body = body
 	return h
 }
 
+// SetBodyMap 设置请求体内容，通常post请求参数可以放置在此处
 func (h *HttpClient) SetBodyMap(body map[string][]string) *HttpClient{
-	if body==nil || len(body)==0 {
+	bodyBytes := h.bodyMap2bytes(body)
+	if len(bodyBytes)==0 {
 		return h
+	}
+	h.SetBody(bodyBytes)
+	return h
+}
+
+func (h *HttpClient) bodyMap2bytes(body map[string][]string) []byte{
+	if body==nil || len(body)==0 {
+		return []byte{}
 	}
 	var bodyBuff bytes.Buffer
 	for name,values := range body {
@@ -145,14 +177,13 @@ func (h *HttpClient) SetBodyMap(body map[string][]string) *HttpClient{
 		}
 	}
 	if bodyBuff.Len() == 0 {
-		return h
+		return []byte{}
 	}
 	bodyBytes := bodyBuff.Bytes()
 	if bodyBytes[len(bodyBytes)-1] == '&' {
 		bodyBytes = bodyBytes[:len(bodyBytes)-1]
 	}
-	h.SetBody(bodyBytes)
-	return h
+	return bodyBytes
 }
 
 
@@ -217,69 +248,96 @@ func (h *HttpClient) copy(srcFile string, dst io.Writer) error{
 	return nil
 }
 
+func (h *HttpClient) doRequest(url string) (rsp *http.Response, err error){
+	if h.err!=nil {
+		return nil, h.err
+	}
+	req, err := http.NewRequest(h.method.ToString(), url, h.body)
+	if err!=nil {
+		return nil, err
+	}
+	for k,v := range h.headers {
+		req.Header.Add(k, v)
+	}
+	for _, cookie := range h.cookies {
+		req.AddCookie(&cookie)
+	}
+	return h.client.Do(req)
+}
+
+func (h *HttpClient) extractRspHeaders(rsp *http.Response){
+	for k,v := range rsp.Header {
+		h.rspHeaders[k] = v
+	}
+}
+
+// Request 发送请求，调用成功后可使用 ResponseHeaders方法获取响应头
+//    url: 请求地址
+// return
+//    body: 响应内容
+//    err: 请求过程中出现的错误
 func (h *HttpClient) Request(url string) (body []byte, err error){
-	if h.err!=nil {
-		return nil, h.err
-	}
-	h.req.SetRequestURI(url)
-	resp := fasthttp.AcquireResponse()
-
-	defer func() {
-		fasthttp.ReleaseRequest(h.req)
-		h.req = nil
-		fasthttp.ReleaseResponse(resp)
-	}()
-	if err = h.client.Do(h.req, resp); err!=nil {
+	rsp, err := h.doRequest(url)
+	if err!=nil {
 		return nil, err
 	}
-	resp.Header.VisitAll(func(key, value []byte){
-		h.respHeaders[string(key)] = value
-	})
-	body = resp.Body()
-	return body, nil
-}
-
-func (h *HttpClient) RequestStream(url string) (body io.Writer, err error){
-	if h.err!=nil {
-		return nil, h.err
-	}
-	h.req.SetRequestURI(url)
-	resp := fasthttp.AcquireResponse()
-
-	defer func() {
-		fasthttp.ReleaseRequest(h.req)
-		h.req = nil
-		fasthttp.ReleaseResponse(resp)
-	}()
-	if err = h.client.Do(h.req, resp); err!=nil {
-		return nil, err
-	}
-	resp.Header.VisitAll(func(key, value []byte){
-		h.respHeaders[string(key)] = value
-	})
-	body = resp.BodyWriter()
-	return body, nil
-}
-
-func (h *HttpClient) ResponseHeaders() map[string][]byte{
-	return h.respHeaders
-}
-
-
-func (h *HttpClient) FastGet(url string) (body []byte, err error){
-	var result []byte
-	_, body, err = h.client.Get(result, url)
+	h.extractRspHeaders(rsp)
+	defer core.CloseQuietly(rsp.Body)
+	body, err = ioutil.ReadAll(rsp.Body)
 	return body, err
 }
 
-func (h *HttpClient) FastPost(url string, data map[string]string) (body []byte, err error){
-	var result []byte
-
-	args := fasthttp.AcquireArgs()
-	for k,v := range data {
-		args.Add(k, v)
+// RequestStream 发送请求，调用成功后可使用 ResponseHeaders方法获取响应头
+//    url: 请求地址
+// return
+//    body: 响应内容
+//    err: 请求过程中出现的错误
+func (h *HttpClient) RequestStream(url string) (body io.Writer, err error){
+	rsp, err := h.doRequest(url)
+	if err!=nil {
+		return nil, err
 	}
-	defer fasthttp.ReleaseArgs(args)
-	_, body, err = h.client.Post(result, url, args)
+	h.extractRspHeaders(rsp)
+	defer core.CloseQuietly(rsp.Body)
+
+	var bodyWriter bufio.Writer
+	_, err = io.Copy(&bodyWriter, rsp.Body)
+	return body, err
+}
+
+// ResponseHeaders 请求完成后，使用此方法获取响应头
+func (h *HttpClient) ResponseHeaders() map[string][]string{
+	return h.rspHeaders
+}
+
+// FastGet 发送简单的GET请求，注意，调用该方法发送请求后 ResponseHeaders方法不会获取响应头
+//    url: 请求地址
+// return
+//    body: 响应内容
+//    err: 请求过程中出现的错误
+func (h *HttpClient) FastGet(url string) (body []byte, err error){
+	rsp, err := h.client.Get(url)
+	if err!=nil {
+		return nil, err
+	}
+	defer core.CloseQuietly(rsp.Body)
+	body, err = ioutil.ReadAll(rsp.Body)
+	return body, err
+}
+
+// FastPost 发送简单的POST请求，注意，调用该方法发送请求后 ResponseHeaders方法不会获取响应头
+//    url: 请求地址
+//    data: post请求参数
+// return
+//    body: 响应内容
+//    err: 请求过程中出现的错误
+func (h *HttpClient) FastPost(url string, data map[string][]string) (body []byte, err error){
+	requestBody := h.bodyMap2bytes(data)
+	rsp, err := h.client.Post(url, FormUrlencoded.ToString(), bytes.NewBuffer(requestBody))
+	if err!=nil {
+		return nil, err
+	}
+	defer core.CloseQuietly(rsp.Body)
+	body, err = ioutil.ReadAll(rsp.Body)
 	return body, err
 }

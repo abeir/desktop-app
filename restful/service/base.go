@@ -1,8 +1,8 @@
 package service
 
 import (
-	"tran-ticket/core/config"
-	"tran-ticket/restful"
+	"github.com/abeir/desktop-app/core/config"
+	"github.com/abeir/desktop-app/restful"
 )
 
 type BaseService struct {
