@@ -75,7 +75,7 @@ func (c *ApplicationConfig) currentPath() (string, error) {
 
 //从环境变量中获取配置文件路径
 func (c *ApplicationConfig) fileFromEnvVar() string{
-	configPath := os.Getenv(applicationEnvVar)
+	configPath := os.Getenv(ApplicationEnvVar)
 	if configPath!="" {
 		if core.IsExists(configPath) {
 			return configPath
@@ -89,7 +89,7 @@ func (c *ApplicationConfig) loadFromEnvVar() (bool, error){
 	if configFile=="" {
 		return false, nil
 	}
-	color.Println("<light_green>load config from environment variable:</>", applicationEnvVar, configFile)
+	color.Println("<light_green>load config from environment variable:</>", ApplicationEnvVar, configFile)
 	extName := filepath.Ext(configFile)
 	if extName==".yaml" || extName==".yml" {
 		return true, c.loadFromYml(configFile)

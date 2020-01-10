@@ -10,7 +10,7 @@ const (
 
 const (
 	//环境变量中配置文件路径
-	applicationEnvVar = "TRAN_TICKET_APP"
+	ApplicationEnvVar = "TRAN_TICKET_APP"
 	// api.yml文件路径在环境中的变量名
-	apiEnvVar = "TRAN_TICKET_API"
+	ApiEnvVar = "TRAN_TICKET_API"
 )

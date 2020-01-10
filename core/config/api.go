@@ -15,13 +15,6 @@ func NewApiConfig() *ApiConfig{
 	return &ApiConfig{load:Unload}
 }
 
-type ApiConfig struct {
-	Urls map[string]string  `json:"url" yaml:"url"`
-	Apis []Api 	`json:"api" yaml:"api"`
-	//加载配置状态
-	load LoadState
-}
-
 type Api struct {
 	Id string `json:"id" yaml:"id"`
 	Name string `json:"name" yaml:"name"`
@@ -33,18 +26,24 @@ func (a *Api) IsEmpty() bool {
 	return a.Id==""
 }
 
+type ApiConfig struct {
+	Urls map[string]string  `json:"url" yaml:"url"`
+	Apis []Api 	`json:"api" yaml:"api"`
+	//加载配置状态
+	load LoadState
+}
 
 func (a *ApiConfig) parseUrl() {
 	if a.Apis==nil || len(a.Apis)==0{
 		return
 	}
-	for _, api := range a.Apis {
-		api.Url = core.NewTemplate().Parse(api.Url, a.Urls)
+	for i, api := range a.Apis {
+		a.Apis[i].Url = core.NewTemplate().Parse(api.Url, a.Urls)
 	}
 }
 
 func (a *ApiConfig) findYml() (string, error){
-	configPath := os.Getenv(apiEnvVar)
+	configPath := os.Getenv(ApiEnvVar)
 	if configPath!="" {
 		if core.IsExists(configPath) {
 			return configPath, nil

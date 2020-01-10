@@ -44,6 +44,18 @@ func IsPanicEnabled() bool{
 	return log.GetLevel() <= logrus.PanicLevel
 }
 
+func Print(args ...interface{}) {
+	log.Print(args...)
+}
+
+func Printf(format string, args ...interface{}) {
+	log.Printf(format, args...)
+}
+
+func Println(args ...interface{}) {
+	log.Println(args...)
+}
+
 func Trace(args ...interface{}) {
 	log.Trace(args...)
 }
