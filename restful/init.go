@@ -58,6 +58,8 @@ func initController(app *config.ApplicationConfig){
 	Gobal.engine = gin.New()
 
 	engine := Gobal.engine
+	engine.LoadHTMLGlob("ui/**/*")
+	engine.StaticFS("assets", http.Dir("ui/assets"))
 	engine.Use(gin.Recovery())
 	engine.Use(controller.Logger())
 

@@ -139,18 +139,21 @@ func (c *ApplicationConfig) Load() error{
 		if err = c.loadFromYml(configFile); err!=nil {
 			return err
 		}
+		return nil
 	}
 	configFile = filepath.Join(currentPath, "config", "application.yaml")
 	if core.IsExists(configFile) {
 		if err = c.loadFromYml(configFile); err!=nil {
 			return err
 		}
+		return nil
 	}
 	configFile = filepath.Join(currentPath, "config", "application.json")
 	if core.IsExists(configFile) {
 		if err = c.loadFromJson(configFile); err!=nil {
 			return err
 		}
+		return nil
 	}
 	err = errors.New("configuration file not found: " + configFile)
 	return err

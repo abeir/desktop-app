@@ -19,4 +19,9 @@ func (t *TestController) Index(ct *gin.Context){
 	ct.JSON(http.StatusOK, rs)
 }
 
-
+func (t *TestController) Hello(ct *gin.Context){
+	data := gin.H{
+		"content": "hi, bro",
+	}
+	ct.HTML(http.StatusOK, "hello.html", data)
+}

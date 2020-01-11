@@ -8,8 +8,13 @@ import (
 )
 
 func Router(engine *gin.Engine){
-	testController := NewTestController()
-	engine.GET("/test", testController.Index)
+
+	test := engine.Group("/test")
+	{
+		testController := NewTestController()
+		test.GET("/", testController.Index)
+		test.GET("/hello", testController.Hello)
+	}
 }
 
 func Validator(){
