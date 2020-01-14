@@ -8,6 +8,8 @@ import (
 )
 
 func Router(engine *gin.Engine){
+	indexController := NewIndexController()
+	engine.GET("/", indexController.Index)
 
 	test := engine.Group("/test")
 	{
