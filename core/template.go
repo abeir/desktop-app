@@ -10,7 +10,7 @@ const (
 	endFlag = '}'
 )
 
-// NewTemplate 解析模板，若模板内容中定义的参数多于实际提供的参数，则为提供的参数不会解析
+// NewTemplate 解析模板，若模板内容中定义的参数多于实际提供的参数，则未提供的参数不会解析
 //
 // 示例1：
 //	args := make(map[string]string)
